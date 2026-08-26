@@ -1,0 +1,41 @@
+# JupyterLab serving the JEWEL (PARENA) kernel -- user-level systemd unit (no sudo required).
+#
+# Deployed 2026-08-26: founder's own chain -- "work on our parena JUPYTER backend just use basic
+# auth to protect it for now until we get google oauthg to work" -> "call it JEWEL" -> "upstream
+# github JEWEL created in case its useful" -> "put the parena backend for jupyter there". Bound to
+# 127.0.0.1 only -- nginx is the real internet-facing edge and is what actually enforces the Basic
+# Auth the founder asked for (see sudo-queue's own JEWEL nginx entry); this unit has no auth of its
+# own and must never be exposed directly.
+#
+# Deploy:
+#   mkdir -p ~/.config/systemd/user
+#   cp ops/systemd/jewel-jupyter.service ~/.config/systemd/user/
+#   /home/fatbaby/.venvs/jupyter/bin/python /home/fatbaby/JEWEL/install_kernel.py
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now jewel-jupyter.service
+#
+# NOTE: --ServerApp.token='' --ServerApp.password='' disables Jupyter's own built-in token/password
+# gate -- deliberate, since nginx's auth_basic in front of this is the real gate per the founder's
+# own explicit instruction. This unit must stay bound to 127.0.0.1 for that tradeoff to be safe --
+# never change --ip without also reintroducing a real auth gate here.
+
+[Unit]
+Description=JupyterLab (JEWEL -- real PARENA notebook kernel)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/fatbaby/JEWEL
+ExecStart=/home/fatbaby/.venvs/jupyter/bin/jupyter lab \
+    --ip=127.0.0.1 --port=8890 --no-browser \
+    --ServerApp.token='' --ServerApp.password='' \
+    --ServerApp.base_url=/jewel/ \
+    --ServerApp.root_dir=/home/fatbaby/JEWEL
+Restart=on-failure
+RestartSec=10s
+StandardOutput=append:/home/fatbaby/EMILY/var/logs/jewel-jupyter.log
+StandardError=append:/home/fatbaby/EMILY/var/logs/jewel-jupyter.log
+MemoryMax=512M
+
+[Install]
+WantedBy=default.target
