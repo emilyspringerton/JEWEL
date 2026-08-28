@@ -1,3 +1,7 @@
+## 2026-08-28
+
+- SARENA_NOTEBOOK v0: real custom PARENA notebook frontend (notebook/index.html) against the live JEWEL kernel, TYLER-style title cards, note cells, verified end-to-end. commit f697c89. (sess-20260825-1938-f6bd411e)
+
 ## 2026-08-26
 - systemd unit: route through the broker (allow_origin='*' for the broker's legitimate Host rewrite), drop the direct-nginx-auth assumption (sess-20260825-1938-f6bd411e)
 
