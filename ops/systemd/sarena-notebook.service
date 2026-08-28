@@ -1,0 +1,39 @@
+# SARENA_NOTEBOOK's own real static frontend -- user-level systemd unit (no sudo required),
+# same real shape jewel-jupyter.service already establishes.
+#
+# Deployed 2026-08-28: docs/NORTHSTAR_SARENA_NOTEBOOK.md's own real v0 scope. A single
+# self-contained static HTML/JS page (notebook/index.html) talking to JEWEL's own real,
+# already-running kernel via the standard Jupyter REST+WebSocket API at /jewel/. Served by
+# Python's own stdlib http.server (no real app-server needed for one static file) bound to
+# 127.0.0.1 only, reachable ONLY through the fatbaby-broker (127.0.0.1:8679,
+# PRRJECT_FATBABY/broker) -- same "broker is the real auth gate, nginx is a dumb pass-through"
+# split jewel-jupyter.service already uses, config-driven via gpt2-alpine-c/config/
+# broker-routes.json's new "sarena-notebook" route (reuses JEWEL's own Basic Auth credentials,
+# one set of notebook credentials rather than two).
+#
+# Deploy:
+#   mkdir -p ~/.config/systemd/user
+#   cp ops/systemd/sarena-notebook.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now sarena-notebook.service
+#
+# NOTE: must stay bound to 127.0.0.1 for the same "broker is the real gate" reason
+# jewel-jupyter.service's own header comment already states -- never change --bind without
+# also reintroducing a real auth gate here.
+
+[Unit]
+Description=SARENA_NOTEBOOK (real PARENA notebook frontend, static)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/fatbaby/JEWEL/notebook
+ExecStart=/usr/bin/python3 -m http.server 8891 --bind 127.0.0.1 --directory /home/fatbaby/JEWEL/notebook
+Restart=on-failure
+RestartSec=10s
+StandardOutput=append:/home/fatbaby/EMILY/var/logs/sarena-notebook.log
+StandardError=append:/home/fatbaby/EMILY/var/logs/sarena-notebook.log
+MemoryMax=128M
+
+[Install]
+WantedBy=default.target

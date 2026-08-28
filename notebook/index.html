@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SARENA_NOTEBOOK</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  /* Real TYLER-style title-card visual identity (see docs/NORTHSTAR_SARENA_NOTEBOOK.md --
+     grepped the actual episode scripts, not invented: recurring "TITLE CARD (white text,
+     black field)", terse declarative phrases). Black field, white text, stark monospace. */
+  :root {
+    --bg: #000000;
+    --fg: #ffffff;
+    --dim: #8a8a8a;
+    --accent: #ffffff;
+    --cell-bg: #0a0a0a;
+    --cell-border: #2a2a2a;
+    --err: #ff4d4d;
+    --ok: #4dff88;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Courier New', Consolas, monospace;
+  }
+  #titlecard {
+    padding: 48px 24px 24px 24px;
+    text-align: center;
+    border-bottom: 1px solid var(--cell-border);
+  }
+  #titlecard h1 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: normal;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+  }
+  #titlecard .sub {
+    margin-top: 10px;
+    color: var(--dim);
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  #status {
+    text-align: center;
+    padding: 8px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--dim);
+    border-bottom: 1px solid var(--cell-border);
+  }
+  #status.busy { color: var(--fg); }
+  #status.err { color: var(--err); }
+  #status.ok { color: var(--ok); }
+  #toolbar {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    padding: 14px;
+    border-bottom: 1px solid var(--cell-border);
+  }
+  button {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--fg);
+    padding: 8px 16px;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  button:hover { background: var(--fg); color: var(--bg); }
+  button:disabled { opacity: 0.35; cursor: default; background: var(--bg); color: var(--fg); }
+  #cells {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+  .cell {
+    border: 1px solid var(--cell-border);
+    background: var(--cell-bg);
+    margin-bottom: 18px;
+  }
+  .cell-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--cell-border);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .cell-header .kind { color: var(--fg); }
+  .cell-header .controls button {
+    padding: 3px 8px;
+    font-size: 9px;
+    margin-left: 6px;
+  }
+  .cell textarea {
+    width: 100%;
+    min-height: 90px;
+    background: var(--cell-bg);
+    color: var(--fg);
+    border: none;
+    padding: 12px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    outline: none;
+  }
+  .note-render {
+    padding: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .note-render h1, .note-render h2, .note-render h3 {
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--cell-border);
+    padding-bottom: 4px;
+  }
+  .note-render code {
+    background: #1a1a1a;
+    padding: 1px 5px;
+  }
+  .output {
+    border-top: 1px solid var(--cell-border);
+    padding: 10px 12px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .output.empty { display: none; }
+  .output .stderr, .output .error { color: var(--err); }
+  .output .execcount {
+    color: var(--dim);
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+  #addbar {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    padding: 20px 0 60px 0;
+  }
+</style>
+</head>
+<body>
+
+<div id="titlecard">
+  <h1>SARENA_NOTEBOOK</h1>
+  <div class="sub">a parena notebook</div>
+</div>
+<div id="status">connecting</div>
+<div id="toolbar">
+  <button id="btn-save">Save</button>
+  <button id="btn-run-all">Run All</button>
+  <button id="btn-clear">New</button>
+</div>
+
+<div id="cells"></div>
+<div id="addbar">
+  <button id="btn-add-code">+ Code Cell</button>
+  <button id="btn-add-note">+ Note Cell</button>
+</div>
+
+<script>
+/* SARENA_NOTEBOOK v0 -- real Jupyter Server REST+WebSocket client talking to JEWEL's own
+ * real, running kernel (127.0.0.1:8890 behind the /jewel/ broker route). No mock/stub mode:
+ * every "Run" click sends a real execute_request and renders the real reply. See
+ * docs/NORTHSTAR_SARENA_NOTEBOOK.md for the full real scoping. */
+
+const BASE = '/jewel';
+const STORAGE_KEY = 'sarena_notebook_v0';
+
+let kernelId = null;
+let ws = null;
+let cells = []; // {id, kind: 'code'|'note', source, output: {stdout, stderr, error, execCount}}
+let cellSeq = 0;
+const pending = {}; // msg_id -> cell.id
+
+function uid() { return 'c' + (cellSeq++) + '_' + Math.random().toString(36).slice(2, 8); }
+
+function setStatus(text, cls) {
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.className = cls || '';
+}
+
+/* --- Real Jupyter kernel session bring-up --- */
+
+/* Jupyter Server's own real XSRF protection (confirmed live against the actual running
+ * kernel, not assumed from docs): a plain POST with no X-XSRFToken header gets a real 403.
+ * The browser already holds the _xsrf cookie (set on any earlier same-origin GET, e.g. this
+ * very page load) -- it just isn't attached as a REQUEST HEADER automatically, only the
+ * cookie itself rides along. Read it back out of document.cookie and echo it as the header
+ * Jupyter Server actually checks. */
+function getCookie(name) {
+  const m = document.cookie.match('(?:^|; )' + name + '=([^;]*)');
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+async function startKernel() {
+  setStatus('starting kernel...', 'busy');
+  /* This page is served from its own /sarena/ static route, not from Jupyter Server itself
+   * -- the browser has no _xsrf cookie yet on first load (that cookie is only ever set by a
+   * response FROM Jupyter Server, scoped to its own /jewel path). Confirmed live (not
+   * assumed): the bare JSON /api endpoint does NOT set it, only an actual HTML-rendering
+   * route does (Tornado's XSRF cookie is set lazily, the first time a request handler
+   * touches self.xsrf_token, which only the page handlers do) -- fetching the real root page
+   * once is what actually triggers the Set-Cookie the POST below needs. */
+  await fetch(BASE + '/', { credentials: 'same-origin' });
+  const xsrf = getCookie('_xsrf');
+  const resp = await fetch(BASE + '/api/kernels', {
+    method: 'POST',
+    headers: Object.assign(
+      { 'Content-Type': 'application/json' },
+      xsrf ? { 'X-XSRFToken': xsrf } : {}
+    ),
+    body: JSON.stringify({ name: 'jewel' })
+  });
+  if (!resp.ok) {
+    setStatus('kernel start failed (' + resp.status + ')', 'err');
+    throw new Error('kernel start failed: ' + resp.status);
+  }
+  const data = await resp.json();
+  kernelId = data.id;
+  connectWs();
+}
+
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = proto + '//' + location.host + BASE + '/api/kernels/' + kernelId + '/channels';
+  ws = new WebSocket(url);
+  ws.onopen = () => setStatus('ready', 'ok');
+  ws.onclose = () => setStatus('disconnected', 'err');
+  ws.onerror = () => setStatus('connection error', 'err');
+  ws.onmessage = (ev) => handleMessage(JSON.parse(ev.data));
+}
+
+/* --- Real Jupyter wire-protocol message construction (msg spec v5.3) --- */
+
+function newMsgId() {
+  return 'sarena-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function sendExecuteRequest(cell) {
+  const msgId = newMsgId();
+  const msg = {
+    header: {
+      msg_id: msgId,
+      username: 'sarena',
+      session: kernelId,
+      msg_type: 'execute_request',
+      version: '5.3',
+      date: new Date().toISOString()
+    },
+    parent_header: {},
+    metadata: {},
+    content: {
+      code: cell.source,
+      silent: false,
+      store_history: true,
+      user_expressions: {},
+      allow_stdin: false,
+      stop_on_error: true
+    },
+    channel: 'shell',
+    buffers: []
+  };
+  pending[msgId] = cell.id;
+  cell.output = { stdout: '', stderr: '', error: null, execCount: null, running: true };
+  renderCells();
+  ws.send(JSON.stringify(msg));
+}
+
+function handleMessage(msg) {
+  const msgId = msg.parent_header && msg.parent_header.msg_id;
+  const cellId = msgId && pending[msgId];
+  if (!cellId) return; // status/other broadcast messages we don't need to route
+  const cell = cells.find(c => c.id === cellId);
+  if (!cell) return;
+  const t = msg.header && msg.header.msg_type;
+  if (t === 'stream') {
+    if (msg.content.name === 'stderr') cell.output.stderr += msg.content.text;
+    else cell.output.stdout += msg.content.text;
+  } else if (t === 'error') {
+    cell.output.error = (msg.content.ename || 'Error') + ': ' + (msg.content.evalue || '');
+  } else if (t === 'execute_result') {
+    const data = msg.content.data || {};
+    cell.output.stdout += (data['text/plain'] || '') + '\n';
+  } else if (t === 'execute_reply') {
+    cell.output.execCount = msg.content.execution_count;
+    cell.output.running = false;
+    delete pending[msgId];
+  }
+  renderCells();
+}
+
+/* --- Minimal, honest hand-rolled markdown subset for NOTE cells (headers, bold, italic,
+ * inline code, paragraphs) -- deliberately not a full CommonMark implementation and
+ * deliberately not a CDN-loaded library (see NORTHSTAR doc's own reasoning). */
+function renderMarkdown(src) {
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const lines = src.split('\n');
+  let html = '';
+  let para = [];
+  const flush = () => {
+    if (para.length) {
+      html += '<p>' + inline(para.join(' ')) + '</p>';
+      para = [];
+    }
+  };
+  const inline = (s) => {
+    s = esc(s);
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    return s;
+  };
+  for (const line of lines) {
+    const h = line.match(/^(#{1,3})\s+(.*)$/);
+    if (h) {
+      flush();
+      const level = h[1].length;
+      html += '<h' + level + '>' + inline(h[2]) + '</h' + level + '>';
+    } else if (line.trim() === '') {
+      flush();
+    } else {
+      para.push(line);
+    }
+  }
+  flush();
+  return html;
+}
+
+/* --- Cell model / persistence --- */
+
+function addCell(kind, source) {
+  cells.push({ id: uid(), kind, source: source || '', output: null });
+  renderCells();
+  save();
+}
+
+function save() {
+  const doc = cells.map(c => ({ kind: c.kind, source: c.source }));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(doc));
+  setStatus('saved', 'ok');
+  setTimeout(() => setStatus('ready', 'ok'), 900);
+}
+
+function load() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    cells = [
+      { id: uid(), kind: 'note', source: '# Welcome\n\nThis is **SARENA_NOTEBOOK**. Write PARENA in a code cell and run it against the real JEWEL kernel.', output: null },
+      { id: uid(), kind: 'code', source: '(defn cell-main [(dest : Arena @ Region)] : Unit\n  #target\n  {:c (inline-c "printf(\\"hello from parena\\\\n\\");")})', output: null }
+    ];
+    return;
+  }
+  try {
+    const doc = JSON.parse(raw);
+    cells = doc.map(c => ({ id: uid(), kind: c.kind, source: c.source, output: null }));
+  } catch (e) {
+    cells = [];
+  }
+}
+
+/* --- Render --- */
+
+function renderCells() {
+  const root = document.getElementById('cells');
+  root.innerHTML = '';
+  for (const cell of cells) {
+    const div = document.createElement('div');
+    div.className = 'cell';
+
+    const header = document.createElement('div');
+    header.className = 'cell-header';
+    const kindLabel = document.createElement('span');
+    kindLabel.className = 'kind';
+    kindLabel.textContent = cell.kind === 'code' ? 'CODE (PARENA)' : 'NOTE';
+    header.appendChild(kindLabel);
+    const controls = document.createElement('span');
+    controls.className = 'controls';
+    if (cell.kind === 'code') {
+      const runBtn = document.createElement('button');
+      runBtn.textContent = 'Run';
+      runBtn.onclick = () => sendExecuteRequest(cell);
+      controls.appendChild(runBtn);
+    }
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = () => { cells = cells.filter(c => c.id !== cell.id); renderCells(); save(); };
+    controls.appendChild(delBtn);
+    header.appendChild(controls);
+    div.appendChild(header);
+
+    if (cell.kind === 'note' && cell._rendered) {
+      const rendered = document.createElement('div');
+      rendered.className = 'note-render';
+      rendered.innerHTML = renderMarkdown(cell.source);
+      rendered.onclick = () => { cell._rendered = false; renderCells(); };
+      div.appendChild(rendered);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = cell.source;
+      ta.oninput = (e) => { cell.source = e.target.value; };
+      ta.onblur = () => {
+        save();
+        if (cell.kind === 'note') { cell._rendered = true; renderCells(); }
+      };
+      div.appendChild(ta);
+    }
+
+    if (cell.kind === 'code' && cell.output) {
+      const out = document.createElement('div');
+      out.className = 'output';
+      let text = '';
+      if (cell.output.execCount !== null) {
+        const line = document.createElement('div');
+        line.className = 'execcount';
+        line.textContent = 'Out [' + cell.output.execCount + ']' + (cell.output.running ? ' (running)' : '');
+        out.appendChild(line);
+      } else if (cell.output.running) {
+        const line = document.createElement('div');
+        line.className = 'execcount';
+        line.textContent = 'running...';
+        out.appendChild(line);
+      }
+      if (cell.output.stdout) {
+        const s = document.createElement('div');
+        s.textContent = cell.output.stdout;
+        out.appendChild(s);
+      }
+      if (cell.output.stderr) {
+        const s = document.createElement('div');
+        s.className = 'stderr';
+        s.textContent = cell.output.stderr;
+        out.appendChild(s);
+      }
+      if (cell.output.error) {
+        const s = document.createElement('div');
+        s.className = 'error';
+        s.textContent = cell.output.error;
+        out.appendChild(s);
+      }
+      div.appendChild(out);
+    }
+
+    root.appendChild(div);
+  }
+}
+
+/* --- Wiring --- */
+
+document.getElementById('btn-add-code').onclick = () => addCell('code', '');
+document.getElementById('btn-add-note').onclick = () => addCell('note', '');
+document.getElementById('btn-save').onclick = save;
+document.getElementById('btn-run-all').onclick = () => {
+  for (const c of cells) if (c.kind === 'code') sendExecuteRequest(c);
+};
+document.getElementById('btn-clear').onclick = () => {
+  if (!confirm('Clear the notebook and start a new one?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  load();
+  renderCells();
+};
+
+load();
+renderCells();
+startKernel().catch(() => {});
+</script>
+</body>
+</html>
