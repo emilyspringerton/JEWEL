@@ -82,9 +82,74 @@ notebook credentials, not two) — the frontend's own client-side `fetch`/WebSoc
 `/jewel/api/...` rely on the browser's own per-origin Basic Auth credential caching once the user
 has authenticated to `/jewel/` once in the same session.
 
+## Word processor pivot (2026-08-30) — real capability check first, not assumed
+
+Founder real-time, same-session rapid burst: "build word processor into JEWEL i want to parlay
+the infrastructure of SARENA notebook to power a gui word processor including spell check and
+auto complete" → "power it via LO" → "dogfood the variables and shit you need" → "basically build
+PARENA editor into SARENA" → "like start porting us to webgl my bro." All posted via `emily
+observe` before acting (Principle 18). Real, honest reframing of each piece, checked directly
+against what actually exists rather than assumed:
+
+1. **"PARENA editor into SARENA"** — the real, concrete, buildable-today piece. `PARENA/stdlib/
+   editor/*.prn` (`buffer.prn`, `widget.prn`, `render.prn`, `textmate*.prn`, `spotlight.prn`) is
+   real, already-verified text-buffer/cursor/undo/syntax-highlighting logic — this doc's own
+   "note rendering" and any future word-processor document model should be BUILT ON this existing
+   editor stdlib, not a new buffer implementation invented inside SARENA_NOTEBOOK's own frontend
+   JS. Real integration shape: JEWEL's kernel already shells out to `parena build` per cell — a
+   word-processor "document" is the same real shape, with `buffer.prn`'s own real functions
+   (`move-cursor-home`/`-end`, line navigation) becoming the actual editing engine behind
+   SARENA_NOTEBOOK's NOTE cells, replacing a plain `<textarea>` with real PARENA-backed cursor/
+   selection state. Not started — real, separate implementation work, sequenced first among these
+   five asks since everything else in this section builds on having a real document/buffer model.
+2. **"Power it via LO"** — checked directly against LO's own real, current state (`LO/GRAMMAR.md`,
+   Phase 1 just landed same session): LO has no variables, no multi-argument functions, no
+   records, and no real string manipulation yet. It categorically cannot power word-processor
+   logic (spell-check, autocomplete, document state) today. Real, honest reading of "dogfood the
+   variables and shit you need" (the founder's own very next message): rather than defer this to
+   an abstract future Phase 2, treat the word processor's real needs as the forcing function for
+   LO's next real language feature — but a genuinely new `let`/variable-binding construct is a
+   real language-design decision (a new grammar production, `GRAMMAR.md` §2 amendment, new lexer/
+   parser/emitter support), not something to bolt on inside this same pass without its own
+   review. **Real, deliberate simplification found and worth naming now, before that design
+   work starts**: LO's original source spec invented a De Bruijn/"Environment Matrix + Magnet"
+   scheme for `let` specifically because LO's target (raw base4 ternaries) has no `let` of its
+   own — but LO's REAL target as of Phase 1 is PARENA, which already has real, working `let`.
+   There is no real reason for LO's own `let` to lower through an environment-matrix at all; it
+   can — and should — emit a real PARENA `(let [x v] body)` directly, sidestepping the source
+   spec's own named AST-duplication blowup risk entirely. This is a real, significant, positive
+   finding for LO's own Phase 2 scoping, surfaced here rather than only in `NORTHSTAR.md` because
+   this is the concrete task that surfaced it. **Not implemented in this pass** — named as the
+   real next LO language-design step (a `GRAMMAR.md` amendment first, per this repo's own
+   established "Spec Before Implementation" discipline), not rushed in under time pressure.
+3. **Spell-check + autocomplete** — real, separate feature work, genuinely buildable on PARENA
+   today (has real `String`/`Vec` support already) regardless of LO's own timeline: a real
+   dictionary-lookup primitive (`Vec String` or a real trie) plus an edit-distance/prefix-match
+   decision function, matching this stdlib's own established "small, verified, narrow v0"
+   discipline. Not started — real, separate follow-up, sequenced after item 1 (needs a real
+   buffer/cursor model to know what word is being typed).
+4. **WebGL rendering** — a real, third rendering backend alongside this doc's own already-named
+   "HTML first... SDL native second" sequencing (a founder-set order, not silently reordered) —
+   read as a real, additional destination, not a replacement for either. Real, honest, unresolved
+   question: does WebGL rendering sit alongside the HTML-first v0 (a progressive-enhancement
+   canvas layer) or is it PAPERCRAFT/DUNG-style native-app rendering ported to the browser? Not
+   started, not designed further here — a founder call once there's a real document model (item
+   1) worth rendering.
+
+**Real, honest sequencing this section commits to, not left ambiguous**: 1 (PARENA editor
+integration) is the real, buildable-today foundation everything else depends on. 2 (LO `let`) is
+a real, separate, next-scoped language change, not blocking 1 or 3. 3 (spell-check/autocomplete)
+and 4 (WebGL) are each real, separate follow-ups layered on top of 1, not designed further in
+this pass.
+
 ## Related
 
 - `EMILY/BACKLOG.md` SECTION 201 — the full real founder-quote history this doc draws from.
 - `JEWEL/CLAUDE.md` — the kernel this frontend is built against; the "Distinct from
   SARENA_NOTEBOOK" section is the real boundary line between the two.
 - `gpt2-alpine-c/config/broker-routes.json` — the real, current routing/auth layer.
+- `PARENA/stdlib/editor/*.prn` — the real, already-verified buffer/cursor/undo/syntax-
+  highlighting logic the word-processor pivot (above) builds the real document model on.
+- `LO/GRAMMAR.md`/`LO/NORTHSTAR.md` — LO's own real, current phased plan; the word-processor
+  pivot's own item 2 above is a real, named input into LO's next real Phase 2 scoping pass, not
+  a competing plan.
